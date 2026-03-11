@@ -1,10 +1,48 @@
-// Gomoku AI - Advanced MCTS with Threat Detection + Pattern Recognition
+// Gomoku AI - 增强版 MCTS + VCF + 转置表
 import type { BoardState, Player, Move } from '../game';
 import { BOARD_SIZE, checkWin, getValidMoves, makeMove } from '../game';
 
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'expert';
 
-// ========== 位置权重表（优化版） ==========
+// ========== 转置表（Transposition Table） ==========
+interface TTEntry {
+  depth: number;
+  score: number;
+  flag: 'EXACT' | 'LOWERBOUND' | 'UPPERBOUND';
+  bestMove: Move | null;
+}
+
+class TranspositionTable {
+  private table: Map<string, TTEntry> = new Map();
+
+  private hash(board: BoardState): string {
+    let hash = '';
+    for (let y = 0; y < BOARD_SIZE; y++) {
+      for (let x = 0; x < BOARD_SIZE; x++) {
+        hash += board[y][x] === null ? '0' : board[y][x] === 'black' ? '1' : '2';
+      }
+    }
+    return hash;
+  }
+
+  get(board: BoardState): TTEntry | null {
+    return this.table.get(this.hash(board)) || null;
+  }
+
+  set(board: BoardState, entry: TTEntry): void {
+    this.table.set(this.hash(board), entry);
+  }
+
+  clear(): void {
+    this.table.clear();
+  }
+
+  size(): number {
+    return this.table.size;
+  }
+}
+
+// ========== 位置权重表 ==========
 const POSITION_WEIGHTS: number[][] = [
   [1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 5, 4, 3, 2, 1],
   [2, 3, 4, 5, 6, 5, 4, 3, 2, 3, 4, 5, 6, 5, 4, 3, 2],
@@ -27,103 +65,103 @@ const POSITION_WEIGHTS: number[][] = [
 export function getDifficultyConfig(difficulty: Difficulty) {
   switch (difficulty) {
     case 'easy':
-      return { simulations: 100, exploration: 2.0, useOpeningBook: false, threatDepth: 1 };
+      return { simulations: 100, exploration: 2.0, useVCF: false, useTT: true };
     case 'medium':
-      return { simulations: 300, exploration: 1.5, useOpeningBook: true, threatDepth: 2 };
+      return { simulations: 300, exploration: 1.5, useVCF: true, useTT: true };
     case 'hard':
-      return { simulations: 800, exploration: 1.0, useOpeningBook: true, threatDepth: 3 };
+      return { simulations: 800, exploration: 1.0, useVCF: true, useTT: true };
     case 'expert':
-      return { simulations: 1500, exploration: 0.8, useOpeningBook: true, threatDepth: 4 };
+      return { simulations: 1500, exploration: 0.8, useVCF: true, useTT: true };
     default:
-      return { simulations: 300, exploration: 1.5, useOpeningBook: true, threatDepth: 2 };
+      return { simulations: 300, exploration: 1.5, useVCF: true, useTT: true };
   }
 }
 
-// ========== 棋型权重（精细版） ==========
+// ========== 棋型权重 ==========
 const PATTERNS = {
-  // 进攻棋型
-  FIVE: 10000000,        // 连五 - 必胜
-  OPEN_FOUR: 1000000,    // 活四 - 下一步必胜
-  CLOSED_FOUR: 100000,   // 冲四 - 必须防守
-  OPEN_THREE: 10000,     // 活三 - 可以发展
-  CLOSED_THREE: 1000,    // 眠三
-  OPEN_TWO: 200,         // 活二
-  
-  // 特殊杀型
-  DOUBLE_FOUR: 500000,   // 双四 - 必胜
-  DOUBLE_THREE: 50000,   // 双三 - 必胜
-  FOUR_THREE: 200000,    // 四三 - 必胜
-  
-  // 防守棋型
-  BLOCK_FIVE: 5000000,   //  blocking 对方连五
-  BLOCK_FOUR: 500000,    //  blocking 对方活四
-  BLOCK_THREE: 50000,    //  blocking 对方活三
-  
-  // 位置权重
-  CENTER: 50,            // 中心控制
+  FIVE: 10000000,
+  OPEN_FOUR: 1000000,
+  CLOSED_FOUR: 100000,
+  OPEN_THREE: 10000,
+  CLOSED_THREE: 1000,
+  OPEN_TWO: 200,
+  CENTER: 50,
 };
 
-// ========== 开局库（扩展版） ==========
+// ========== 开局库 ==========
 const OPENING_BOOK: Record<string, Move> = {
   '': { x: 7, y: 7 },
   '7,7': { x: 8, y: 8 },
   '7,7-8,8': { x: 6, y: 6 },
   '7,7-8,7': { x: 7, y: 8 },
   '7,7-7,8': { x: 8, y: 7 },
-  '7,7-6,6': { x: 8, y: 8 },
-  '7,7-8,6': { x: 6, y: 8 },
-  '7,7-6,8': { x: 8, y: 6 },
 };
+
+// ========== VCF 搜索（连续冲四取胜） ==========
+function searchVCF(board: BoardState, player: Player, depth: number = 10): Move | null {
+  const moves = getValidMoves(board);
+  
+  // 检查每一步是否形成连五
+  for (const move of moves) {
+    const testBoard = board.map(row => [...row]);
+    testBoard[move.y][move.x] = player;
+    
+    if (checkWin(testBoard, move.x, move.y, player).winner) {
+      return move; // 立即获胜
+    }
+    
+    // 检查是否形成冲四（对方必须防守）
+    const patterns = getAllPatterns(testBoard, move.x, move.y, player);
+    if (patterns.includes('CLOSED_FOUR') || patterns.includes('OPEN_FOUR')) {
+      // 递归检查后续
+      if (depth > 0) {
+        const opponent = player === 'black' ? 'white' : 'black';
+        const response = searchVCF(testBoard, opponent, depth - 1);
+        if (!response) {
+          return move; // 对方无法防守
+        }
+      }
+    }
+  }
+  
+  return null;
+}
 
 // ========== 威胁检测 ==========
 interface Threat {
   move: Move;
-  type: 'FIVE' | 'OPEN_FOUR' | 'CLOSED_FOUR' | 'OPEN_THREE' | 'DOUBLE_FOUR' | 'DOUBLE_THREE';
-  player: Player;
+  type: 'FIVE' | 'OPEN_FOUR' | 'CLOSED_FOUR' | 'OPEN_THREE';
   priority: number;
 }
 
-// 检测威胁（进攻和防守）
 function detectThreats(board: BoardState, player: Player): Threat[] {
   const threats: Threat[] = [];
-  const opponent = player === 'black' ? 'white' : 'black';
+  const moves = getValidMoves(board);
 
-  for (let y = 0; y < BOARD_SIZE; y++) {
-    for (let x = 0; x < BOARD_SIZE; x++) {
-      if (board[y][x] !== null) continue;
+  for (const move of moves) {
+    const testBoard = board.map(row => [...row]);
+    testBoard[move.y][move.x] = player;
 
-      // 检查这个位置是否形成威胁
-      const testBoard = board.map(row => [...row]);
-      testBoard[y][x] = player;
+    if (checkWin(testBoard, move.x, move.y, player).winner) {
+      threats.push({ move, type: 'FIVE', priority: 100 });
+      continue;
+    }
 
-      // 检查是否获胜
-      if (checkWin(testBoard, x, y, player).winner) {
-        threats.push({ move: { x, y }, type: 'FIVE', player, priority: 100 });
-        continue;
-      }
-
-      // 检查棋型
-      const patterns = getAllPatterns(testBoard, x, y, player);
-      
-      if (patterns.includes('OPEN_FOUR')) {
-        threats.push({ move: { x, y }, type: 'OPEN_FOUR', player, priority: 90 });
-      } else if (patterns.includes('CLOSED_FOUR')) {
-        threats.push({ move: { x, y }, type: 'CLOSED_FOUR', player, priority: 80 });
-      } else if (patterns.includes('OPEN_THREE')) {
-        threats.push({ move: { x, y }, type: 'OPEN_THREE', player, priority: 70 });
-      }
-
-      // 检查双杀
-      if (patterns.filter(p => p === 'CLOSED_FOUR').length >= 2) {
-        threats.push({ move: { x, y }, type: 'DOUBLE_FOUR', player, priority: 95 });
-      }
+    const patterns = getAllPatterns(testBoard, move.x, move.y, player);
+    
+    if (patterns.includes('OPEN_FOUR')) {
+      threats.push({ move, type: 'OPEN_FOUR', priority: 90 });
+    } else if (patterns.includes('CLOSED_FOUR')) {
+      threats.push({ move, type: 'CLOSED_FOUR', priority: 80 });
+    } else if (patterns.includes('OPEN_THREE')) {
+      threats.push({ move, type: 'OPEN_THREE', priority: 70 });
     }
   }
 
   return threats.sort((a, b) => b.priority - a.priority);
 }
 
-// 获取某位置形成的所有棋型
+// ========== 棋型评估 ==========
 function getAllPatterns(board: BoardState, x: number, y: number, player: Player): string[] {
   const patterns: string[] = [];
   const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
@@ -138,51 +176,6 @@ function getAllPatterns(board: BoardState, x: number, y: number, player: Player)
   return patterns;
 }
 
-// ========== 评估函数（增强版） ==========
-export function evaluateBoard(board: BoardState, player: Player): number {
-  let score = 0;
-  const opponent = player === 'black' ? 'white' : 'black';
-
-  for (let y = 0; y < BOARD_SIZE; y++) {
-    for (let x = 0; x < BOARD_SIZE; x++) {
-      const cell = board[y][x];
-      if (cell === null) continue;
-
-      const isPlayer = cell === player;
-      const weight = POSITION_WEIGHTS[y][x];
-      const multiplier = isPlayer ? 1 : -1.5; // 防守权重更高
-
-      // 位置分
-      score += multiplier * weight * PATTERNS.CENTER;
-
-      // 棋型分
-      const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
-      for (const [dx, dy] of directions) {
-        const pattern = evaluatePattern(board, x, y, dx, dy, cell);
-        const patternScore = PATTERNS[pattern as keyof typeof PATTERNS] || 0;
-        score += multiplier * patternScore;
-      }
-    }
-  }
-
-  // 检测威胁（进攻和防守）
-  const playerThreats = detectThreats(board, player);
-  const opponentThreats = detectThreats(board, opponent);
-
-  // 进攻分
-  for (const threat of playerThreats) {
-    score += threat.priority * 100;
-  }
-
-  // 防守分（更重要）
-  for (const threat of opponentThreats) {
-    score -= threat.priority * 150;
-  }
-
-  return score;
-}
-
-// ========== 棋型评估 ==========
 function evaluatePattern(
   board: BoardState,
   x: number,
@@ -193,41 +186,28 @@ function evaluatePattern(
 ): string {
   let count = 1;
   let openEnds = 0;
-  let blockedEnds = 0;
 
-  // 正方向
   let i = 1;
   while (true) {
     const nx = x + dx * i;
     const ny = y + dy * i;
-    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
-      blockedEnds++;
-      break;
-    }
-    if (board[ny][nx] === player) {
-      count++;
-    } else {
+    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
+    if (board[ny][nx] === player) count++;
+    else {
       if (board[ny][nx] === null) openEnds++;
-      else blockedEnds++;
       break;
     }
     i++;
   }
 
-  // 反方向
   i = 1;
   while (true) {
     const nx = x - dx * i;
     const ny = y - dy * i;
-    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
-      blockedEnds++;
-      break;
-    }
-    if (board[ny][nx] === player) {
-      count++;
-    } else {
+    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
+    if (board[ny][nx] === player) count++;
+    else {
       if (board[ny][nx] === null) openEnds++;
-      else blockedEnds++;
       break;
     }
     i++;
@@ -242,14 +222,41 @@ function evaluatePattern(
   return 'NONE';
 }
 
-// ========== MCTS 节点（增强版） ==========
+// ========== 评估函数 ==========
+export function evaluateBoard(board: BoardState, player: Player): number {
+  let score = 0;
+  const opponent = player === 'black' ? 'white' : 'black';
+
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      const cell = board[y][x];
+      if (cell === null) continue;
+
+      const isPlayer = cell === player;
+      const weight = POSITION_WEIGHTS[y][x];
+      const multiplier = isPlayer ? 1 : -1.5;
+
+      score += multiplier * weight * PATTERNS.CENTER;
+
+      const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+      for (const [dx, dy] of directions) {
+        const pattern = evaluatePattern(board, x, y, dx, dy, cell);
+        const patternScore = PATTERNS[pattern as keyof typeof PATTERNS] || 0;
+        score += multiplier * patternScore;
+      }
+    }
+  }
+
+  return score;
+}
+
+// ========== MCTS 节点 ==========
 class MCTSNode {
   visits = 0;
   wins = 0;
   children: Map<string, MCTSNode> = new Map();
   move: Move | null = null;
   parent: MCTSNode | null = null;
-  threatMoves: Threat[] = [];
 
   constructor(
     public board: BoardState,
@@ -259,8 +266,6 @@ class MCTSNode {
   ) {
     this.move = move;
     this.parent = parent;
-    // 预计算威胁
-    this.threatMoves = detectThreats(board, player);
   }
 
   get ucb1() {
@@ -281,78 +286,69 @@ class MCTSNode {
     }
     return getValidMoves(this.board).length === 0;
   }
-
-  getBestMoves(limit: number = 10): Move[] {
-    // 优先返回威胁位置
-    if (this.threatMoves.length > 0) {
-      return this.threatMoves.slice(0, limit).map(t => t.move);
-    }
-
-    // 否则返回中心附近的点
-    const moves = getValidMoves(this.board);
-    const weighted = moves
-      .map(m => ({ ...m, score: POSITION_WEIGHTS[m.y][m.x] + Math.random() * 10 }))
-      .sort((a, b) => b.score - a.score);
-    
-    return weighted.slice(0, limit).map(m => ({ x: m.x, y: m.y }));
-  }
 }
 
-// ========== MCTS 搜索（增强版） ==========
+// ========== MCTS 搜索（带 VCF 和转置表） ==========
 function mctsSearch(
   board: BoardState,
   player: Player,
   simulations: number,
   exploration: number,
-  threatDepth: number
+  useVCF: boolean,
+  useTT: boolean
 ): Move {
+  const tt = useTT ? new TranspositionTable() : null;
   const root = new MCTSNode(board, player);
 
-  // 检查是否有立即获胜或必须防守的棋
-  const immediateWin = detectThreats(board, player).find(t => t.type === 'FIVE');
-  if (immediateWin) return immediateWin.move;
+  // 1. 检查 VCF（一步杀）
+  if (useVCF) {
+    const vcfMove = searchVCF(board, player, 6);
+    if (vcfMove) return vcfMove;
 
-  const opponent = player === 'black' ? 'white' : 'black';
-  const opponentWin = detectThreats(board, opponent).find(t => t.type === 'FIVE');
-  if (opponentWin) return opponentWin.move; // 必须防守
+    // 2. 检查必须防守的棋
+    const opponent = player === 'black' ? 'white' : 'black';
+    const opponentVCF = searchVCF(board, opponent, 6);
+    if (opponentVCF) return opponentVCF;
+  }
+
+  // 3. 检查开局库
+  const opening = getOpeningMove(board);
+  if (opening) return opening;
 
   for (let i = 0; i < simulations; i++) {
     let node = root;
     let tempBoard = board.map(row => [...row]);
     let tempPlayer = player;
 
-    // Selection - 优先选择威胁位置
+    // Selection
     while (node.children.size > 0) {
-      const threatMoves = node.threatMoves.slice(0, threatDepth).map(t => `${t.move.x},${t.move.y}`);
       const children = Array.from(node.children.values());
-      
-      // 如果有威胁位置，优先选择
-      const threatChildren = children.filter(c => c.move && threatMoves.includes(`${c.move.x},${c.move.y}`));
-      if (threatChildren.length > 0) {
-        node = threatChildren.reduce((best, child) => 
-          child.visits === 0 ? child : (child.ucb1 > best.ucb1 ? child : best)
-        );
-      } else {
-        node = children.reduce((best, child) => 
-          child.visits === 0 ? child : (child.ucb1 > best.ucb1 ? child : best)
-        );
-      }
-      
+      node = children.reduce((best, child) =>
+        child.visits === 0 ? child : (child.ucb1 > best.ucb1 ? child : best)
+      );
+
       if (node.move) {
         tempBoard[node.move.y][node.move.x] = tempPlayer;
         tempPlayer = tempPlayer === 'black' ? 'white' : 'black';
       }
-      
-      // 检查是否结束
+
       if (node.move && checkWin(tempBoard, node.move.x, node.move.y, tempPlayer === 'black' ? 'white' : 'black').winner) {
         break;
       }
     }
 
-    // Expansion - 只扩展高质量位置
+    // Expansion
     if (!node.isTerminal() && node.visits > 0 && node.children.size === 0) {
-      const bestMoves = node.getBestMoves(15); // 只扩展前 15 个好点
-      
+      const moves = getValidMoves(tempBoard);
+      const threats = useVCF ? detectThreats(tempBoard, tempPlayer) : [];
+      const bestMoves = threats.length > 0
+        ? threats.slice(0, 10).map(t => t.move)
+        : moves
+            .map(m => ({ ...m, score: POSITION_WEIGHTS[m.y][m.x] + Math.random() * 10 }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 15)
+            .map(m => ({ x: m.x, y: m.y }));
+
       for (const move of bestMoves) {
         if (!node.children.has(`${move.x},${move.y}`)) {
           const child = new MCTSNode(tempBoard.map(r => [...r]), tempPlayer, move, node);
@@ -365,38 +361,28 @@ function mctsSearch(
       }
     }
 
-    // Simulation - 偏向威胁位置的随机模拟
+    // Simulation
     let simCount = 0;
     while (!node.isTerminal() && simCount < 30) {
       const moves = getValidMoves(tempBoard);
       if (moves.length === 0) break;
-      
-      // 检测当前局面的威胁
-      const threats = detectThreats(tempBoard, tempPlayer);
-      let selectedMove: Move;
-      
-      if (threats.length > 0 && Math.random() < 0.7) {
-        // 70% 概率选择威胁位置
-        selectedMove = threats[0].move;
-      } else {
-        // 否则加权随机
-        const weightedMoves = moves.map(m => ({
-          ...m,
-          weight: POSITION_WEIGHTS[m.y][m.x]
-        }));
-        const totalWeight = weightedMoves.reduce((s, m) => s + m.weight, 0);
-        let random = Math.random() * totalWeight;
-        selectedMove = moves[0];
-        
-        for (const m of weightedMoves) {
-          random -= m.weight;
-          if (random <= 0) {
-            selectedMove = m;
-            break;
-          }
+
+      const weightedMoves = moves.map(m => ({
+        ...m,
+        weight: POSITION_WEIGHTS[m.y][m.x]
+      }));
+      const totalWeight = weightedMoves.reduce((s, m) => s + m.weight, 0);
+      let random = Math.random() * totalWeight;
+      let selectedMove = moves[0];
+
+      for (const m of weightedMoves) {
+        random -= m.weight;
+        if (random <= 0) {
+          selectedMove = m;
+          break;
         }
       }
-      
+
       tempBoard[selectedMove.y][selectedMove.x] = tempPlayer;
       tempPlayer = tempPlayer === 'black' ? 'white' : 'black';
       simCount++;
@@ -415,14 +401,12 @@ function mctsSearch(
     }
   }
 
-  // 选择最佳移动
   const children = Array.from(root.children.values());
   if (children.length === 0) {
     const moves = getValidMoves(board);
     return moves[Math.floor(Math.random() * moves.length)] || { x: 7, y: 7 };
   }
-  
-  // 选择访问次数最多的
+
   const best = children.reduce((a, b) => a.visits > b.visits ? a : b);
   return best.move!;
 }
@@ -457,15 +441,7 @@ function getOpeningMove(board: BoardState): Move | null {
 // ========== 主函数 ==========
 export function getBestMove(board: BoardState, player: Player, difficulty: Difficulty): Move {
   const config = getDifficultyConfig(difficulty);
-
-  // 使用开局库
-  if (config.useOpeningBook && getValidMoves(board).length > BOARD_SIZE * BOARD_SIZE - 3) {
-    const opening = getOpeningMove(board);
-    if (opening) return opening;
-  }
-
-  // MCTS 搜索
-  return mctsSearch(board, player, config.simulations, config.exploration, config.threatDepth);
+  return mctsSearch(board, player, config.simulations, config.exploration, config.useVCF, config.useTT);
 }
 
 export function canAIMove(board: BoardState): boolean {
