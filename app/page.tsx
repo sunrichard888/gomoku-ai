@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Board from '@/components/Board';
 import { createInitialState, makeMove, undoMove, checkDraw } from '@/lib/game';
 import type { GameState, Player } from '@/lib/game';
-import { getBestMove, type Difficulty } from '@/lib/ai/engine';
+import type { Difficulty } from '@/lib/ai/engine';
 
 export default function Home() {
   const [gameState, setGameState] = useState<GameState>(createInitialState);
@@ -12,6 +12,27 @@ export default function Home() {
   const [gameMode, setGameMode] = useState<'pve' | 'pvp'>('pve');
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const workerRef = useRef<Worker | null>(null);
+
+  // 初始化 AI Worker
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('@/lib/ai/worker.ts', import.meta.url));
+    
+    workerRef.current.onmessage = (e) => {
+      const { move } = e.data;
+      if (move) {
+        setGameState(prev => {
+          const newState = makeMove(prev, move.x, move.y);
+          return newState;
+        });
+      }
+      setIsAIThinking(false);
+    };
+
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   // 检查游戏是否结束
   const isGameOver = gameState.winner !== null;
@@ -30,24 +51,18 @@ export default function Home() {
     }
   }, [gameState, gameMode, isGameOver, isAIThinking]);
 
-  // AI 落子
+  // AI 落子（使用 Web Worker）
   useEffect(() => {
     if (gameMode === 'pve' && gameState.currentPlayer === 'white' && !isGameOver) {
       setIsAIThinking(true);
       
-      // 使用 setTimeout 避免阻塞 UI
-      const timer = setTimeout(() => {
-        const bestMove = getBestMove(gameState.board, 'white', difficulty);
-        
-        if (bestMove) {
-          const newState = makeMove(gameState, bestMove.x, bestMove.y);
-          setGameState(newState);
-        }
-        
-        setIsAIThinking(false);
-      }, 300);
-
-      return () => clearTimeout(timer);
+      // 发送任务到 Worker
+      workerRef.current?.postMessage({
+        type: 'GET_BEST_MOVE',
+        board: gameState.board,
+        player: 'white',
+        difficulty,
+      });
     }
   }, [gameState, gameMode, difficulty, isGameOver]);
 

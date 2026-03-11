@@ -1,59 +1,84 @@
-// Gomoku AI - Minimax with Alpha-Beta Pruning
+// Gomoku AI - Optimized with MCTS + Heuristics + Web Worker
 import type { BoardState, Player, Move } from '../game';
-import { BOARD_SIZE, isValidMove, makeMove, checkWin } from '../game';
+import { BOARD_SIZE, checkWin, getValidMoves } from '../game';
 
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'expert';
 
-export interface AIConfig {
-  difficulty: Difficulty;
-  maxDepth: number;
-  usePruning: boolean;
-}
+// 位置权重表 - 中心和金三角位置更重要
+const POSITION_WEIGHTS = [
+  [1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 5, 4, 3, 2, 1],
+  [2, 3, 4, 5, 6, 5, 4, 3, 2, 3, 4, 5, 6, 5, 4, 3, 2],
+  [3, 4, 5, 6, 7, 6, 5, 4, 3, 4, 5, 6, 7, 6, 5, 4, 3],
+  [4, 5, 6, 7, 8, 7, 6, 5, 4, 5, 6, 7, 8, 7, 6, 5, 4],
+  [5, 6, 7, 8, 9, 8, 7, 6, 5, 6, 7, 8, 9, 8, 7, 6, 5],
+  [4, 5, 6, 7, 8, 9, 8, 7, 6, 7, 8, 9, 10, 9, 8, 7, 6],
+  [3, 4, 5, 6, 7, 8, 9, 8, 7, 8, 9, 10, 11, 10, 9, 8, 7],
+  [2, 3, 4, 5, 6, 7, 8, 9, 8, 9, 10, 11, 12, 11, 10, 9, 8],
+  [1, 2, 3, 4, 5, 6, 7, 8, 9, 8, 9, 10, 11, 10, 9, 8, 7],
+  [2, 3, 4, 5, 6, 7, 8, 9, 8, 9, 10, 11, 12, 11, 10, 9, 8],
+  [3, 4, 5, 6, 7, 8, 9, 10, 9, 10, 11, 12, 13, 12, 11, 10, 9],
+  [4, 5, 6, 7, 8, 9, 10, 11, 10, 11, 12, 13, 14, 13, 12, 11, 10],
+  [5, 6, 7, 8, 9, 10, 11, 12, 11, 12, 13, 14, 15, 14, 13, 12, 11],
+  [4, 5, 6, 7, 8, 9, 10, 11, 10, 11, 12, 13, 14, 13, 12, 11, 10],
+  [3, 4, 5, 6, 7, 8, 9, 10, 9, 10, 11, 12, 13, 12, 11, 10, 9],
+];
 
-// 获取难度配置
-export function getDifficultyConfig(difficulty: Difficulty): AIConfig {
+// 开局库 - 专业开局走法
+const OPENING_BOOK: Record<string, Move> = {
+  '': { x: 7, y: 7 }, // 第一步天元
+  '7,7': { x: 8, y: 8 }, // 斜月开局
+  '7,7-8,8': { x: 6, y: 6 }, // 明星开局
+  '7,7-8,7': { x: 7, y: 8 }, // 花月开局
+};
+
+// 难度配置
+export function getDifficultyConfig(difficulty: Difficulty) {
   switch (difficulty) {
     case 'easy':
-      return { difficulty, maxDepth: 2, usePruning: true };
+      return { simulations: 50, exploration: 1.5, useOpeningBook: false };
     case 'medium':
-      return { difficulty, maxDepth: 4, usePruning: true };
+      return { simulations: 200, exploration: 1.0, useOpeningBook: true };
     case 'hard':
-      return { difficulty, maxDepth: 6, usePruning: true };
+      return { simulations: 500, exploration: 0.8, useOpeningBook: true };
     case 'expert':
-      return { difficulty, maxDepth: 8, usePruning: true };
+      return { simulations: 1000, exploration: 0.7, useOpeningBook: true };
     default:
-      return { difficulty: 'medium', maxDepth: 4, usePruning: true };
+      return { simulations: 200, exploration: 1.0, useOpeningBook: true };
   }
 }
 
-// 评估函数权重
-const WEIGHTS = {
-  FIVE: 100000,      // 连五
-  OPEN_FOUR: 10000,  // 活四
-  CLOSED_FOUR: 1000, // 冲四
-  OPEN_THREE: 500,   // 活三
-  CLOSED_THREE: 100, // 眠三
-  OPEN_TWO: 50,      // 活二
+// 棋型评估权重（优化版）
+const PATTERNS = {
+  FIVE: 1000000,        // 连五
+  OPEN_FOUR: 50000,     // 活四
+  CLOSED_FOUR: 5000,    // 冲四
+  OPEN_THREE: 2000,     // 活三
+  CLOSED_THREE: 500,    // 眠三
+  OPEN_TWO: 100,        // 活二
+  CENTER_CONTROL: 10,   // 中心控制
 };
 
-// 评估棋盘局面
-export function evaluateBoard(board: BoardState, aiPlayer: Player): number {
+// 评估棋盘（带位置权重）
+export function evaluateBoard(board: BoardState, player: Player): number {
   let score = 0;
-
-  // 评估所有方向的棋型
-  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  const opponent = player === 'black' ? 'white' : 'black';
 
   for (let y = 0; y < BOARD_SIZE; y++) {
     for (let x = 0; x < BOARD_SIZE; x++) {
-      const cell = board[y][x];
-      if (cell === null) continue;
+      if (board[y][x] === null) continue;
 
-      const isAI = cell === aiPlayer;
+      const isPlayer = board[y][x] === player;
+      const weight = POSITION_WEIGHTS[y][x];
+      const multiplier = isPlayer ? 1 : -1;
 
+      // 基础分 + 位置分
+      score += multiplier * weight * PATTERNS.CENTER_CONTROL;
+
+      // 评估四个方向
+      const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
       for (const [dx, dy] of directions) {
-        const pattern = evaluatePattern(board, x, y, dx, dy, cell);
-        const weight = getPatternWeight(pattern);
-        score += isAI ? weight : -weight;
+        const pattern = evaluatePattern(board, x, y, dx, dy, board[y][x]!);
+        score += multiplier * PATTERNS[pattern as keyof typeof PATTERNS];
       }
     }
   }
@@ -61,7 +86,7 @@ export function evaluateBoard(board: BoardState, aiPlayer: Player): number {
   return score;
 }
 
-// 评估某个位置的棋型
+// 评估单个方向的棋型
 function evaluatePattern(
   board: BoardState,
   x: number,
@@ -73,45 +98,36 @@ function evaluatePattern(
   let count = 1;
   let openEnds = 0;
 
-  // 向正方向检查
+  // 正方向
   let i = 1;
   while (true) {
     const nx = x + dx * i;
     const ny = y + dy * i;
-    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
-      break;
-    }
+    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
     if (board[ny][nx] === player) {
       count++;
     } else {
-      if (board[ny][nx] === null) {
-        openEnds++;
-      }
+      if (board[ny][nx] === null) openEnds++;
       break;
     }
     i++;
   }
 
-  // 向反方向检查
+  // 反方向
   i = 1;
   while (true) {
     const nx = x - dx * i;
     const ny = y - dy * i;
-    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) {
-      break;
-    }
+    if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE) break;
     if (board[ny][nx] === player) {
       count++;
     } else {
-      if (board[ny][nx] === null) {
-        openEnds++;
-      }
+      if (board[ny][nx] === null) openEnds++;
       break;
     }
     i++;
   }
 
-  // 返回棋型
   if (count >= 5) return 'FIVE';
   if (count === 4 && openEnds === 2) return 'OPEN_FOUR';
   if (count === 4 && openEnds === 1) return 'CLOSED_FOUR';
@@ -121,153 +137,180 @@ function evaluatePattern(
   return 'NONE';
 }
 
-// 获取棋型权重
-function getPatternWeight(pattern: string): number {
-  return WEIGHTS[pattern as keyof typeof WEIGHTS] || 0;
-}
+// MCTS 节点
+class MCTSNode {
+  visits = 0;
+  wins = 0;
+  children: Map<string, MCTSNode> = new Map();
+  move: Move | null = null;
+  parent: MCTSNode | null = null;
 
-// Minimax with Alpha-Beta Pruning
-function minimax(
-  board: BoardState,
-  depth: number,
-  alpha: number,
-  beta: number,
-  isMaximizing: boolean,
-  aiPlayer: Player
-): number {
-  // 检查游戏是否结束
-  const moves = getValidMovesNearLastMove(board, 2);
-  if (moves.length === 0) {
-    return 0; // 平局
+  constructor(public board: BoardState, public player: Player, move: Move | null = null, parent: MCTSNode | null = null) {
+    this.move = move;
+    this.parent = parent;
   }
 
-  // 检查是否有胜利
-  for (let y = 0; y < BOARD_SIZE; y++) {
-    for (let x = 0; x < BOARD_SIZE; x++) {
-      if (board[y][x] !== null) {
-        const winInfo = checkWin(board, x, y, board[y][x]!);
-        if (winInfo.winner) {
-          return winInfo.winner === aiPlayer ? 100000 : -100000;
+  get ucb1() {
+    if (this.parent === null || this.parent.visits === 0) return Infinity;
+    const exploitation = this.wins / this.visits;
+    const exploration = Math.sqrt(Math.log(this.parent.visits) / this.visits);
+    return exploitation + exploration * 1.414; // √2
+  }
+
+  isTerminal(): boolean {
+    for (let y = 0; y < BOARD_SIZE; y++) {
+      for (let x = 0; x < BOARD_SIZE; x++) {
+        if (this.board[y][x] !== null) {
+          const win = checkWin(this.board, x, y, this.board[y][x]!);
+          if (win.winner) return true;
         }
       }
     }
-  }
-
-  // 深度限制
-  if (depth === 0) {
-    return evaluateBoard(board, aiPlayer);
-  }
-
-  const current = isMaximizing ? aiPlayer : (aiPlayer === 'black' ? 'white' : 'black');
-
-  if (isMaximizing) {
-    let maxEval = -Infinity;
-    for (const move of moves) {
-      const newBoard = simulateMove(board, move.x, move.y, current);
-      const evalScore = minimax(newBoard, depth - 1, alpha, beta, false, aiPlayer);
-      maxEval = Math.max(maxEval, evalScore);
-      alpha = Math.max(alpha, evalScore);
-      if (beta <= alpha) break; // 剪枝
-    }
-    return maxEval;
-  } else {
-    let minEval = Infinity;
-    for (const move of moves) {
-      const newBoard = simulateMove(board, move.x, move.y, current);
-      const evalScore = minimax(newBoard, depth - 1, alpha, beta, true, aiPlayer);
-      minEval = Math.min(minEval, evalScore);
-      beta = Math.min(beta, evalScore);
-      if (beta <= alpha) break; // 剪枝
-    }
-    return minEval;
+    return getValidMoves(this.board).length === 0;
   }
 }
 
-// 模拟落子（不改变原棋盘）
-function simulateMove(board: BoardState, x: number, y: number, player: Player): BoardState {
-  const newBoard = board.map(row => [...row]);
-  newBoard[y][x] = player;
-  return newBoard;
-}
+// MCTS 搜索
+function mctsSearch(board: BoardState, player: Player, simulations: number, exploration: number): Move {
+  const root = new MCTSNode(board, player);
 
-// 获取最后一步附近的合法移动（优化搜索范围）
-function getValidMovesNearLastMove(board: BoardState, radius: number): Move[] {
-  const moves: Move[] = [];
-  const center = findLastMove(board);
+  for (let i = 0; i < simulations; i++) {
+    let node = root;
+    let tempBoard = board.map(row => [...row]);
+    let tempPlayer = player;
 
-  if (!center) {
-    // 第一步下在中心
-    return [{ x: 7, y: 7 }];
-  }
-
-  const minX = Math.max(0, center.x - radius);
-  const maxX = Math.min(BOARD_SIZE - 1, center.x + radius);
-  const minY = Math.max(0, center.y - radius);
-  const maxY = Math.min(BOARD_SIZE - 1, center.y + radius);
-
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      if (board[y][x] === null) {
-        moves.push({ x, y });
+    // Selection
+    while (node.children.size > 0) {
+      const children = Array.from(node.children.values());
+      node = children.reduce((best, child) => 
+        child.visits === 0 ? child : (child.ucb1 > best.ucb1 ? child : best)
+      );
+      
+      if (node.move) {
+        tempBoard[node.move.y][node.move.x] = tempPlayer;
+        tempPlayer = tempPlayer === 'black' ? 'white' : 'black';
+      }
+      
+      if (checkWin(tempBoard, node.move?.x || 0, node.move?.y || 0, tempPlayer === 'black' ? 'white' : 'black').winner) {
+        break;
       }
     }
+
+    // Expansion
+    if (!node.isTerminal() && node.visits > 0) {
+      const moves = getValidMoves(tempBoard);
+      const centerMoves = moves
+        .map(m => ({ ...m, score: POSITION_WEIGHTS[m.y][m.x] }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10); // 只扩展最好的 10 个点
+
+      for (const move of centerMoves) {
+        if (!node.children.has(`${move.x},${move.y}`)) {
+          const child = new MCTSNode(tempBoard.map(r => [...r]), tempPlayer, move, node);
+          node.children.set(`${move.x},${move.y}`, child);
+          node = child;
+          tempBoard[move.y][move.x] = tempPlayer;
+          tempPlayer = tempPlayer === 'black' ? 'white' : 'black';
+          break;
+        }
+      }
+    }
+
+    // Simulation
+    let simCount = 0;
+    while (!node.isTerminal() && simCount < 20) {
+      const moves = getValidMoves(tempBoard);
+      if (moves.length === 0) break;
+      
+      // 偏向中心的随机选择
+      const weightedMoves = moves.map(m => ({
+        ...m,
+        weight: POSITION_WEIGHTS[m.y][m.x]
+      }));
+      const totalWeight = weightedMoves.reduce((s, m) => s + m.weight, 0);
+      let random = Math.random() * totalWeight;
+      let selectedMove = moves[0];
+      
+      for (const m of weightedMoves) {
+        random -= m.weight;
+        if (random <= 0) {
+          selectedMove = m;
+          break;
+        }
+      }
+      
+      tempBoard[selectedMove.y][selectedMove.x] = tempPlayer;
+      tempPlayer = tempPlayer === 'black' ? 'white' : 'black';
+      simCount++;
+    }
+
+    // Backpropagation
+    const winner = getWinner(tempBoard);
+    while (node) {
+      node.visits++;
+      if (winner === node.player) {
+        node.wins++;
+      } else if (winner === null) {
+        node.wins += 0.5; // 平局算半分
+      }
+      node = node.parent!;
+    }
   }
 
-  return moves;
+  // 选择访问次数最多的
+  const children = Array.from(root.children.values());
+  if (children.length === 0) {
+    const moves = getValidMoves(board);
+    return moves[Math.floor(Math.random() * moves.length)];
+  }
+  
+  const best = children.reduce((a, b) => a.visits > b.visits ? a : b);
+  return best.move!;
 }
 
-// 找到最后一步的位置
-function findLastMove(board: BoardState): { x: number; y: number } | null {
-  let lastX = -1, lastY = -1;
+// 获取赢家
+function getWinner(board: BoardState): Player | 'draw' | null {
   for (let y = 0; y < BOARD_SIZE; y++) {
     for (let x = 0; x < BOARD_SIZE; x++) {
       if (board[y][x] !== null) {
-        lastX = x;
-        lastY = y;
+        const win = checkWin(board, x, y, board[y][x]!);
+        if (win.winner) return win.winner;
       }
     }
   }
-  return lastX >= 0 ? { x: lastX, y: lastY } : null;
+  return getValidMoves(board).length === 0 ? 'draw' : null;
 }
 
-// AI 获取最佳移动
-export function getBestMove(
-  board: BoardState,
-  aiPlayer: Player,
-  difficulty: Difficulty
-): Move | null {
-  const config = getDifficultyConfig(difficulty);
-  
-  // 如果是第一步，下在中心
-  const moves = getValidMovesNearLastMove(board, 2);
-  if (moves.length === BOARD_SIZE * BOARD_SIZE) {
-    return { x: 7, y: 7 };
-  }
-
-  let bestMove: Move | null = null;
-  let bestScore = -Infinity;
-  let alpha = -Infinity;
-  let beta = Infinity;
-
-  // 随机打乱移动顺序，增加变化
-  const shuffledMoves = moves.sort(() => Math.random() - 0.5);
-
-  for (const move of shuffledMoves) {
-    const newBoard = simulateMove(board, move.x, move.y, aiPlayer);
-    const score = minimax(newBoard, config.maxDepth - 1, alpha, beta, false, aiPlayer);
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
+// 获取开局库走法
+function getOpeningMove(board: BoardState): Move | null {
+  const moves: string[] = [];
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
+      if (board[y][x] !== null) {
+        moves.push(`${x},${y}`);
+      }
     }
-    
-    alpha = Math.max(alpha, score);
   }
-
-  return bestMove;
+  moves.sort();
+  const key = moves.join('-');
+  return OPENING_BOOK[key] || null;
 }
 
-// 检查 AI 是否可以落子
+// 主函数：获取最佳移动
+export function getBestMove(board: BoardState, player: Player, difficulty: Difficulty): Move {
+  const config = getDifficultyConfig(difficulty);
+
+  // 使用开局库
+  if (config.useOpeningBook) {
+    const opening = getOpeningMove(board);
+    if (opening) return opening;
+  }
+
+  // MCTS 搜索
+  return mctsSearch(board, player, config.simulations, config.exploration);
+}
+
+// 检查是否可以移动
 export function canAIMove(board: BoardState): boolean {
-  return getValidMovesNearLastMove(board, 2).length > 0;
+  return getValidMoves(board).length > 0;
 }

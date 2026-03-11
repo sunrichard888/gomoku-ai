@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Web Worker 支持 - Next.js 14+ 自动支持
 };
 
 export default nextConfig;
