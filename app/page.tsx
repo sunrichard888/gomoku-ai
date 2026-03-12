@@ -60,6 +60,7 @@ export default function Home() {
             });
           } else {
             console.error('No move from API:', data.error);
+            console.error('Debug info:', data.debug);
           }
           setIsAIThinking(false);
         })

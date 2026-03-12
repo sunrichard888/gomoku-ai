@@ -14,6 +14,12 @@ interface MoveRequest {
 interface MoveResponse {
   move: { x: number; y: number } | null;
   error?: string;
+  debug?: {
+    enginePath?: string;
+    platform?: string;
+    stderr?: string;
+    exitCode?: number;
+  };
 }
 
 // 难度配置
@@ -60,6 +66,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       
       const engine = spawn(enginePath, [], { env, cwd: process.cwd() });
       let output = '';
+      let stderrOutput = '';
       let moveFound = false;
 
       // 超时保护
@@ -68,7 +75,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
           engine.kill();
           resolve(NextResponse.json({ 
             move: getFallbackMove(board),
-            error: 'Timeout'
+            error: 'Timeout',
+            debug: { enginePath, platform: process.platform, stderr: stderrOutput }
           }));
         }
       }, config.thoughtTime + 3000);
@@ -96,6 +104,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       engine.stderr.on('data', (data) => {
         const error = data.toString();
         console.error('Rapfi stderr:', error);
+        stderrOutput += error;
         // 解析具体错误
         if (error.includes('No such file')) {
           console.error('Missing library:', error.match(/lib[a-zA-Z0-9_]+\.so[.0-9]*/));
@@ -107,7 +116,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
         console.error('Rapfi engine error:', err);
         resolve(NextResponse.json({ 
           move: getFallbackMove(board),
-          error: err.message
+          error: err.message,
+          debug: { enginePath, platform: process.platform, stderr: stderrOutput }
         }));
       });
 
@@ -117,7 +127,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
           console.log(`Rapfi exited with code ${code}`);
           resolve(NextResponse.json({ 
             move: getFallbackMove(board),
-            error: `Engine exited with code ${code}`
+            error: `Engine exited with code ${code}`,
+            debug: { enginePath, platform: process.platform, stderr: stderrOutput, exitCode: code }
           }));
         }
       });
