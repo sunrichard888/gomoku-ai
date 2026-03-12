@@ -62,10 +62,23 @@ export default function Home() {
         .then(data => {
           console.log('API response data:', data);
           if (data.move) {
+            // 检查落子位置是否合法
+            const isValid = gameState.board[data.move.y][data.move.x] === null;
+            console.log('Move validation:', {
+              x: data.move.x,
+              y: data.move.y,
+              isValid,
+              cellValue: gameState.board[data.move.y][data.move.x]
+            });
+            
             // 使用函数式更新，确保使用最新状态
             setGameState(prev => {
               const newState = makeMove(prev, data.move.x, data.move.y);
-              console.log('New game state:', newState.currentPlayer);
+              console.log('New game state:', {
+                currentPlayer: newState.currentPlayer,
+                isChanged: newState !== prev,
+                lastMove: newState.lastMove
+              });
               return newState;
             });
           } else {
