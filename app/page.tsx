@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Board from '@/components/Board';
 import { createInitialState, makeMove, undoMove, checkDraw } from '@/lib/game';
 import type { GameState, Player } from '@/lib/game';
-import type { Difficulty } from '@/lib/ai/engine';
+import type { Difficulty } from '@/lib/ai/rapfi-engine';
 
 export default function Home() {
   const [gameState, setGameState] = useState<GameState>(createInitialState);

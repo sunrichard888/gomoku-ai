@@ -1,5 +1,5 @@
 // AI Web Worker - 后台运行 AI 计算
-import { getBestMove, type Difficulty } from './engine';
+import { getBestMove, type Difficulty } from './rapfi-engine';
 import type { BoardState, Player } from '../game';
 
 // Worker 消息类型

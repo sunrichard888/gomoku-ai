@@ -115,7 +115,7 @@
 
 - [x] 下载 Rapfi22.exe 到 `engine/` 目录
 - [x] Rapfi 引擎解压成功
-- [ ] 切换使用 Rapfi 引擎（需要修改导入）
+- [x] 切换使用 Rapfi 引擎（修改 worker.ts 和 page.tsx）
 - [ ] 测试各难度强度
 - [ ] 根据反馈调整参数
 
