@@ -61,10 +61,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       }, config.thoughtTime + 3000);
 
       engine.stdout.on('data', (data) => {
-        output += data.toString();
+        const str = data.toString();
+        output += str;
+        console.log('Rapfi output:', str);
         
         // 解析着法 (格式：x,y)
-        const match = output.match(/(\d+),(\d+)/);
+        const match = str.match(/(\d+),(\d+)/);
         if (match && !moveFound) {
           moveFound = true;
           clearTimeout(timeout);
@@ -72,6 +74,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
           
           const x = parseInt(match[1]);
           const y = parseInt(match[2]);
+          console.log(`Rapfi move: ${x},${y}`);
           
           resolve(NextResponse.json({ move: { x, y } }));
         }
@@ -90,12 +93,25 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
         }));
       });
 
+      engine.on('close', (code) => {
+        if (!moveFound) {
+          clearTimeout(timeout);
+          console.log(`Rapfi exited with code ${code}`);
+          resolve(NextResponse.json({ 
+            move: getFallbackMove(board),
+            error: `Engine exited with code ${code}`
+          }));
+        }
+      });
+
       // 发送初始化命令
+      console.log('Starting Rapfi engine:', enginePath);
       engine.stdin.write('board 15\n');
       engine.stdin.write(`${player}\n`);
       
       // 发送当前局面
       const moves = getMoveList(board);
+      console.log(`Sending ${moves.length} moves to Rapfi`);
       if (moves.length === 0) {
         // 空棋盘，下天元
         engine.stdin.write('turn 7,7\n');
@@ -108,6 +124,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       
       // 请求 AI 着法
       setTimeout(() => {
+        console.log('Requesting AI move...');
         engine.stdin.write('ai\n');
       }, 100);
     });
