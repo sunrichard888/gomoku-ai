@@ -48,6 +48,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
     );
     console.log('Engine path:', enginePath, 'Platform:', process.platform);
     
+    // Linux 下需要添加执行权限
+    if (!isWindows) {
+      await import('child_process').then(({ exec }) => 
+        new Promise<void>((resolve) => {
+          exec(`chmod +x "${enginePath}"`, () => resolve());
+        })
+      );
+      console.log('Added execute permission to:', enginePath);
+    }
+    
     return new Promise((resolve) => {
       const engine = spawn(enginePath);
       let output = '';
