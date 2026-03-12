@@ -62,7 +62,12 @@ export default function Home() {
         .then(data => {
           console.log('API response data:', data);
           if (data.move) {
-            setGameState(prev => makeMove(prev, data.move.x, data.move.y));
+            // 使用函数式更新，确保使用最新状态
+            setGameState(prev => {
+              const newState = makeMove(prev, data.move.x, data.move.y);
+              console.log('New game state:', newState.currentPlayer);
+              return newState;
+            });
           } else {
             console.error('No move from API:', data.error);
           }
