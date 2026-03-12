@@ -37,12 +37,14 @@ export default function Home() {
       
       console.log('Calling Rapfi API...');
       
+      const currentBoard = gameState.board;
+      
       // 调用 Rapfi 引擎 API
       fetch('/api/ai/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          board: gameState.board,
+          board: currentBoard,
           player: 'white',
           difficulty,
         }),
@@ -55,6 +57,10 @@ export default function Home() {
           console.log('API response data:', data);
           if (data.move) {
             setGameState(prev => {
+              // 检查棋盘是否已经变化（防止重复落子）
+              if (prev.currentPlayer !== 'white') {
+                return prev;
+              }
               const newState = makeMove(prev, data.move.x, data.move.y);
               return newState;
             });
@@ -69,7 +75,7 @@ export default function Home() {
           setIsAIThinking(false);
         });
     }
-  }, [gameState, gameMode, difficulty, isGameOver, isAIThinking]);
+  }, [gameState.currentPlayer, gameMode, difficulty, isGameOver, isAIThinking]);
 
   // 悔棋
   const handleUndo = useCallback(() => {
