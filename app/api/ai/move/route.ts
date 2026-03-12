@@ -39,10 +39,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
 
     const config = getDifficultyConfig(difficulty);
     
-    // Rapfi 引擎路径（Vercel 用 Linux 版本）
-    const enginePath = process.env.VERCEL 
-      ? path.join(process.cwd(), 'engine', 'Rapfi22')  // Linux
-      : path.join(process.cwd(), 'engine', 'Rapfi22.exe');  // Windows
+    // Rapfi 引擎路径（根据操作系统选择）
+    const isWindows = process.platform === 'win32';
+    const enginePath = path.join(
+      process.cwd(), 
+      'engine', 
+      isWindows ? 'Rapfi22.exe' : 'Rapfi22'
+    );
+    console.log('Engine path:', enginePath, 'Platform:', process.platform);
     
     return new Promise((resolve) => {
       const engine = spawn(enginePath);
