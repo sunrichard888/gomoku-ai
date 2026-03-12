@@ -71,6 +71,7 @@ export default function Home() {
           board: gameState.board,
           player: 'white',
           difficulty,
+          lastMove: gameState.lastMove || undefined,  // 传递最新落子
         }),
       })
         .then(res => res.json())

@@ -9,6 +9,7 @@ interface MoveRequest {
   board: (null | 'black' | 'white')[][];
   player: 'black' | 'white';
   difficulty: Difficulty;
+  lastMove?: { x: number; y: number };
 }
 
 interface MoveResponse {
@@ -137,9 +138,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       engine.stdin.write('board 15\n');
       engine.stdin.write(`${player}\n`);
       
-      // 发送当前局面
-      const moves = getMoveList(board);
+      // 从棋盘重建着法序列（确保包含所有落子）
+      const moves = getMoveListFromBoard(board);
       console.log(`Sending ${moves.length} moves to Rapfi`);
+      
       if (moves.length === 0) {
         // 空棋盘，下天元
         engine.stdin.write('turn 7,7\n');
@@ -163,6 +165,22 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+}
+
+// 从棋盘重建着法列表（按顺序）
+function getMoveListFromBoard(board: (null | string)[][]): { x: number; y: number }[] {
+  const moves: { x: number; y: number }[] = [];
+  
+  // 扫描棋盘，收集所有非空位置
+  for (let y = 0; y < 15; y++) {
+    for (let x = 0; x < 15; x++) {
+      if (board[y][x] !== null) {
+        moves.push({ x, y });
+      }
+    }
+  }
+  
+  return moves;
 }
 
 // 获取着法列表
