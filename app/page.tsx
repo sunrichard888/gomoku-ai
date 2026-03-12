@@ -67,18 +67,17 @@ export default function Home() {
             console.error('No move from API:', data.error);
             console.error('Debug info:', data.debug);
           }
-        })
-        .finally(() => {
-          setIsAIThinking(false);
+          // AI 走棋完成后重置标记
           aiCalledRef.current = false;
+          setIsAIThinking(false);
         })
         .catch(err => {
           console.error('AI API error:', err);
-          setIsAIThinking(false);
           aiCalledRef.current = false;
+          setIsAIThinking(false);
         });
     }
-  }, [gameState.currentPlayer, gameMode, difficulty, isGameOver]);
+  }, [gameState.currentPlayer, gameMode, difficulty, isGameOver, isAIThinking]);
 
   // 悔棋
   const handleUndo = useCallback(() => {
