@@ -52,11 +52,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       // Linux 下需要设置库路径
       const env = { ...process.env };
       if (!isWindows) {
-        env.LD_LIBRARY_PATH = path.join(process.cwd(), 'engine');
+        const libPath = path.join(process.cwd(), 'engine');
+        env.LD_LIBRARY_PATH = `${libPath}:${libPath}/libs:${process.env.LD_LIBRARY_PATH || ''}`;
         console.log('LD_LIBRARY_PATH:', env.LD_LIBRARY_PATH);
+        console.log('Engine exists:', enginePath);
       }
       
-      const engine = spawn(enginePath, [], { env });
+      const engine = spawn(enginePath, [], { env, cwd: process.cwd() });
       let output = '';
       let moveFound = false;
 
@@ -92,7 +94,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
       });
 
       engine.stderr.on('data', (data) => {
-        console.error('Rapfi stderr:', data.toString());
+        const error = data.toString();
+        console.error('Rapfi stderr:', error);
+        // 解析具体错误
+        if (error.includes('No such file')) {
+          console.error('Missing library:', error.match(/lib[a-zA-Z0-9_]+\.so[.0-9]*/));
+        }
       });
 
       engine.on('error', (err) => {
