@@ -18,7 +18,7 @@ interface MoveResponse {
     enginePath?: string;
     platform?: string;
     stderr?: string;
-    exitCode?: number;
+    exitCode?: number | null;
   };
 }
 
