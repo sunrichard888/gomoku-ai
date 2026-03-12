@@ -1,4 +1,4 @@
-// Rapfi 引擎 API 路由 - 服务端运行
+// Rapfi 引擎 API 路由 - 服务端运行（使用标准 Gomocup 协议）
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
@@ -9,7 +9,6 @@ interface MoveRequest {
   board: (null | 'black' | 'white')[][];
   player: 'black' | 'white';
   difficulty: Difficulty;
-  lastMove?: { x: number; y: number };
 }
 
 interface MoveResponse {
@@ -105,10 +104,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
         const error = data.toString();
         console.error('Rapfi stderr:', error);
         stderrOutput += error;
-        // 解析具体错误
-        if (error.includes('No such file')) {
-          console.error('Missing library:', error.match(/lib[a-zA-Z0-9_]+\.so[.0-9]*/));
-        }
       });
 
       engine.on('error', (err) => {
@@ -133,30 +128,28 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
         }
       });
 
-      // 发送初始化命令
-      console.log('Starting Rapfi engine:', enginePath);
-      engine.stdin.write('board 15\n');
-      engine.stdin.write(`${player}\n`);
+      // ===== 使用标准 Gomocup 协议 =====
+      console.log('Starting Rapfi engine with Gomocup protocol...');
       
-      // 从棋盘重建着法序列（确保包含所有落子）
-      const moves = getMoveListFromBoard(board);
+      // 1. START - 初始化棋盘
+      engine.stdin.write('START 15\n');
+      
+      // 2. BOARD - 开始接收棋盘状态
+      engine.stdin.write('BOARD\n');
+      
+      // 3. 发送所有落子 (格式：x,y,颜色 1=黑 2=白)
+      const moves = getMoveListWithColor(board);
       console.log(`Sending ${moves.length} moves to Rapfi`);
       
-      if (moves.length === 0) {
-        // 空棋盘，下天元
-        engine.stdin.write('turn 7,7\n');
-      } else {
-        // 发送着法序列
-        for (const move of moves) {
-          engine.stdin.write(`turn ${move.x},${move.y}\n`);
-        }
+      for (const move of moves) {
+        const color = move.color === 'black' ? 1 : 2;
+        engine.stdin.write(`${move.x},${move.y},${color}\n`);
+        console.log(`Move: ${move.x},${move.y},${color} (${move.color})`);
       }
       
-      // 请求 AI 着法
-      setTimeout(() => {
-        console.log('Requesting AI move...');
-        engine.stdin.write('ai\n');
-      }, 100);
+      // 4. DONE - 发送完毕，AI 自动返回着法
+      engine.stdin.write('DONE\n');
+      console.log('Sent DONE, waiting for AI move...');
     });
   } catch (error) {
     console.error('AI API error:', error);
@@ -167,32 +160,20 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
   }
 }
 
-// 从棋盘重建着法列表（按顺序）
-function getMoveListFromBoard(board: (null | string)[][]): { x: number; y: number }[] {
-  const moves: { x: number; y: number }[] = [];
+// 从棋盘获取着法列表（包含颜色）
+function getMoveListWithColor(board: (null | 'black' | 'white')[][]): { x: number; y: number; color: 'black' | 'white' }[] {
+  const moves: { x: number; y: number; color: 'black' | 'white' }[] = [];
   
   // 扫描棋盘，收集所有非空位置
   for (let y = 0; y < 15; y++) {
     for (let x = 0; x < 15; x++) {
-      if (board[y][x] !== null) {
-        moves.push({ x, y });
+      const cell = board[y][x];
+      if (cell !== null) {
+        moves.push({ x, y, color: cell });
       }
     }
   }
   
-  return moves;
-}
-
-// 获取着法列表
-function getMoveList(board: (null | string)[][]): { x: number; y: number }[] {
-  const moves: { x: number; y: number }[] = [];
-  for (let y = 0; y < 15; y++) {
-    for (let x = 0; x < 15; x++) {
-      if (board[y][x] !== null) {
-        moves.push({ x, y });
-      }
-    }
-  }
   return moves;
 }
 
