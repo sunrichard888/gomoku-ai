@@ -37,3 +37,13 @@ next-env.d.ts
 
 # review files
 .reviews/
+
+# engine files (ignore Windows, include Linux for Vercel)
+engine/*.exe
+engine/*.7z
+engine/Rapfi Engine/
+engine/Rapfi-gomocup/
+engine/output.txt
+engine/error.txt
+!engine/Rapfi22
+!engine/libs/
