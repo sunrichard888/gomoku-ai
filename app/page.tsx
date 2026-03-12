@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Board from '@/components/Board';
 import { createInitialState, makeMove, undoMove, checkDraw } from '@/lib/game';
 import type { GameState, Player } from '@/lib/game';
-import type { Difficulty } from '@/lib/ai/rapfi-engine';
+import type { Difficulty } from '@/lib/ai/engine';
 
 export default function Home() {
   const [gameState, setGameState] = useState<GameState>(createInitialState);
@@ -51,18 +51,35 @@ export default function Home() {
     }
   }, [gameState, gameMode, isGameOver, isAIThinking]);
 
-  // AI 落子（使用 Web Worker）
+  // AI 落子（使用 Rapfi API）
   useEffect(() => {
     if (gameMode === 'pve' && gameState.currentPlayer === 'white' && !isGameOver) {
       setIsAIThinking(true);
       
-      // 发送任务到 Worker
-      workerRef.current?.postMessage({
-        type: 'GET_BEST_MOVE',
-        board: gameState.board,
-        player: 'white',
-        difficulty,
-      });
+      // 调用 Rapfi 引擎 API
+      fetch('/api/ai/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          board: gameState.board,
+          player: 'white',
+          difficulty,
+        }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.move) {
+            setGameState(prev => {
+              const newState = makeMove(prev, data.move.x, data.move.y);
+              return newState;
+            });
+          }
+          setIsAIThinking(false);
+        })
+        .catch(err => {
+          console.error('AI API error:', err);
+          setIsAIThinking(false);
+        });
     }
   }, [gameState, gameMode, difficulty, isGameOver]);
 
