@@ -15,6 +15,21 @@ export default function Home() {
   
   // 使用 ref 跟踪上一步玩家，防止 AI 重复调用
   const lastPlayerRef = useRef<Player>('black');
+  // 内置 AI Worker（作为 Rapfi 失败时的备用）
+  const workerRef = useRef<Worker | null>(null);
+  
+  // 初始化备用 AI Worker
+  useEffect(() => {
+    workerRef.current = new Worker(new URL('@/lib/ai/worker.ts', import.meta.url));
+    workerRef.current.onmessage = (e) => {
+      const { move } = e.data;
+      if (move) {
+        setGameState(prev => makeMove(prev, move.x, move.y));
+      }
+      setIsAIThinking(false);
+    };
+    return () => workerRef.current?.terminate();
+  }, []);
 
   // 检查游戏是否结束
   const isGameOver = gameState.winner !== null;
@@ -70,6 +85,19 @@ export default function Home() {
               isValid,
               cellValue: gameState.board[data.move.y][data.move.x]
             });
+            
+            if (!isValid) {
+              // AI 返回了非法坐标，回退到内置引擎
+              console.warn('Rapfi returned invalid move, falling back to built-in AI');
+              // 使用 Web Worker 调用内置 AI
+              workerRef.current?.postMessage({
+                type: 'GET_BEST_MOVE',
+                board: gameState.board,
+                player: 'white',
+                difficulty,
+              });
+              return;
+            }
             
             // 使用函数式更新，确保使用最新状态
             setGameState(prev => {

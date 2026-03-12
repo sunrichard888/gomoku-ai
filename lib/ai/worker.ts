@@ -1,6 +1,4 @@
-// AI Web Worker - 后台运行 AI 计算
-// 注意：Rapfi 引擎需要 Node.js 环境，不能在浏览器 Worker 中运行
-// 暂时回退到内置 α-β 引擎
+// AI Web Worker - 后台运行 AI 计算（内置 α-β 引擎）
 import { getBestMove, type Difficulty } from './engine';
 import type { BoardState, Player } from '../game';
 
