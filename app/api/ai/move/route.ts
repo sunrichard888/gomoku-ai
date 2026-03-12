@@ -55,8 +55,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<MoveRespo
     console.log('Engine path:', enginePath, 'Platform:', process.platform);
     
     return new Promise((resolve) => {
-      // Linux 下使用系统库，不设置 LD_LIBRARY_PATH
-      const engine = spawn(enginePath);
+      // Linux 下需要设置库路径（只包含 engine 目录）
+      const env = { ...process.env };
+      if (!isWindows) {
+        const libPath = path.join(process.cwd(), 'engine');
+        env.LD_LIBRARY_PATH = libPath;
+        console.log('LD_LIBRARY_PATH:', env.LD_LIBRARY_PATH);
+      }
+      
+      const engine = spawn(enginePath, [], { env });
       let output = '';
       let stderrOutput = '';
       let moveFound = false;
