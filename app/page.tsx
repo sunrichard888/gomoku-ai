@@ -12,7 +12,9 @@ export default function Home() {
   const [gameMode, setGameMode] = useState<'pve' | 'pvp'>('pve');
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const aiCalledRef = useRef(false);
+  
+  // 使用 ref 跟踪上一步玩家，防止 AI 重复调用
+  const lastPlayerRef = useRef<Player>('black');
 
   // 检查游戏是否结束
   const isGameOver = gameState.winner !== null;
@@ -31,16 +33,18 @@ export default function Home() {
     }
   }, [gameState, gameMode, isGameOver, isAIThinking]);
 
-  // AI 落子（使用 Rapfi API）- 使用 ref 防止重复调用
+  // AI 落子（使用 Rapfi API）
   useEffect(() => {
-    // 防止重复调用
-    if (aiCalledRef.current) return;
+    const isWhiteTurn = gameState.currentPlayer === 'white';
+    const wasBlackTurn = lastPlayerRef.current === 'black';
     
-    if (gameMode === 'pve' && gameState.currentPlayer === 'white' && !isGameOver && !isAIThinking) {
-      aiCalledRef.current = true;
-      setIsAIThinking(true);
+    // 只有当轮到白棋且上一步是黑棋时才调用 AI（防止重复调用）
+    if (gameMode === 'pve' && isWhiteTurn && wasBlackTurn && !isGameOver) {
+      // 更新上一步玩家
+      lastPlayerRef.current = 'white';
       
       console.log('Calling Rapfi API...');
+      setIsAIThinking(true);
       
       // 调用 Rapfi 引擎 API
       fetch('/api/ai/move', {
@@ -52,32 +56,26 @@ export default function Home() {
           difficulty,
         }),
       })
-        .then(res => {
-          console.log('API response status:', res.status);
-          return res.json();
-        })
+        .then(res => res.json())
         .then(data => {
           console.log('API response data:', data);
           if (data.move) {
-            setGameState(prev => {
-              const newState = makeMove(prev, data.move.x, data.move.y);
-              return newState;
-            });
+            setGameState(prev => makeMove(prev, data.move.x, data.move.y));
           } else {
             console.error('No move from API:', data.error);
-            console.error('Debug info:', data.debug);
           }
-          // AI 走棋完成后重置标记
-          aiCalledRef.current = false;
-          setIsAIThinking(false);
         })
         .catch(err => {
           console.error('AI API error:', err);
-          aiCalledRef.current = false;
+        })
+        .finally(() => {
           setIsAIThinking(false);
         });
+    } else if (!isWhiteTurn) {
+      // 如果不是白棋回合，重置标记
+      lastPlayerRef.current = gameState.currentPlayer;
     }
-  }, [gameState.currentPlayer, gameMode, difficulty, isGameOver, isAIThinking]);
+  }, [gameState.currentPlayer, gameMode, difficulty, isGameOver, gameState.board]);
 
   // 悔棋
   const handleUndo = useCallback(() => {
@@ -86,6 +84,7 @@ export default function Home() {
       let state = undoMove(gameState);
       state = undoMove(state);
       setGameState(state);
+      lastPlayerRef.current = 'black';
     } else {
       // PvP 模式悔一步
       setGameState(undoMove(gameState));
@@ -95,14 +94,14 @@ export default function Home() {
   // 新游戏
   const handleNewGame = useCallback(() => {
     setGameState(createInitialState());
-    aiCalledRef.current = false;
+    lastPlayerRef.current = 'black';
   }, []);
 
   // 切换游戏模式
   const handleModeChange = useCallback((mode: 'pve' | 'pvp') => {
     setGameMode(mode);
     setGameState(createInitialState());
-    aiCalledRef.current = false;
+    lastPlayerRef.current = 'black';
     setShowSettings(false);
   }, []);
 
@@ -110,7 +109,7 @@ export default function Home() {
   const handleDifficultyChange = useCallback((diff: Difficulty) => {
     setDifficulty(diff);
     setGameState(createInitialState());
-    aiCalledRef.current = false;
+    lastPlayerRef.current = 'black';
     setShowSettings(false);
   }, []);
 
@@ -227,7 +226,7 @@ export default function Home() {
                       <button
                         key={diff}
                         onClick={() => handleDifficultyChange(diff)}
-                        className={`px-4 py-3 rounded-lg transition-colors ${
+                        className={`flex-1 px-4 py-3 rounded-lg transition-colors ${
                           difficulty === diff
                             ? 'bg-amber-500 text-white'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
