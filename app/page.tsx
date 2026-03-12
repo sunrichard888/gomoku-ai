@@ -12,27 +12,6 @@ export default function Home() {
   const [gameMode, setGameMode] = useState<'pve' | 'pvp'>('pve');
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const workerRef = useRef<Worker | null>(null);
-
-  // 初始化 AI Worker
-  useEffect(() => {
-    workerRef.current = new Worker(new URL('@/lib/ai/worker.ts', import.meta.url));
-    
-    workerRef.current.onmessage = (e) => {
-      const { move } = e.data;
-      if (move) {
-        setGameState(prev => {
-          const newState = makeMove(prev, move.x, move.y);
-          return newState;
-        });
-      }
-      setIsAIThinking(false);
-    };
-
-    return () => {
-      workerRef.current?.terminate();
-    };
-  }, []);
 
   // 检查游戏是否结束
   const isGameOver = gameState.winner !== null;
@@ -53,8 +32,10 @@ export default function Home() {
 
   // AI 落子（使用 Rapfi API）
   useEffect(() => {
-    if (gameMode === 'pve' && gameState.currentPlayer === 'white' && !isGameOver) {
+    if (gameMode === 'pve' && gameState.currentPlayer === 'white' && !isGameOver && !isAIThinking) {
       setIsAIThinking(true);
+      
+      console.log('Calling Rapfi API...');
       
       // 调用 Rapfi 引擎 API
       fetch('/api/ai/move', {
@@ -66,13 +47,19 @@ export default function Home() {
           difficulty,
         }),
       })
-        .then(res => res.json())
+        .then(res => {
+          console.log('API response status:', res.status);
+          return res.json();
+        })
         .then(data => {
+          console.log('API response data:', data);
           if (data.move) {
             setGameState(prev => {
               const newState = makeMove(prev, data.move.x, data.move.y);
               return newState;
             });
+          } else {
+            console.error('No move from API:', data.error);
           }
           setIsAIThinking(false);
         })
@@ -81,7 +68,7 @@ export default function Home() {
           setIsAIThinking(false);
         });
     }
-  }, [gameState, gameMode, difficulty, isGameOver]);
+  }, [gameState, gameMode, difficulty, isGameOver, isAIThinking]);
 
   // 悔棋
   const handleUndo = useCallback(() => {
