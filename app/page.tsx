@@ -38,6 +38,8 @@ export default function Home() {
     const isWhiteTurn = gameState.currentPlayer === 'white';
     const wasBlackTurn = lastPlayerRef.current === 'black';
     
+    console.log('AI Check:', { isWhiteTurn, wasBlackTurn, gameMode, isGameOver });
+    
     // 只有当轮到白棋且上一步是黑棋时才调用 AI（防止重复调用）
     if (gameMode === 'pve' && isWhiteTurn && wasBlackTurn && !isGameOver) {
       // 更新上一步玩家
@@ -75,7 +77,7 @@ export default function Home() {
       // 如果不是白棋回合，重置标记
       lastPlayerRef.current = gameState.currentPlayer;
     }
-  }, [gameState.currentPlayer, gameMode, difficulty, isGameOver, gameState.board]);
+  }, [gameState.currentPlayer, gameMode, difficulty, isGameOver]);
 
   // 悔棋
   const handleUndo = useCallback(() => {
