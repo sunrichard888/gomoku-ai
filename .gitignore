@@ -38,12 +38,19 @@ next-env.d.ts
 # review files
 .reviews/
 
-# engine files (ignore Windows, include Linux for Vercel)
+# engine files (ignore Windows and system libs, include only Linux binary and tbb)
 engine/*.exe
 engine/*.7z
 engine/Rapfi Engine/
 engine/Rapfi-gomocup/
 engine/output.txt
 engine/error.txt
+engine/Readme.txt
+engine/libc.so.6
+engine/libdl.so.2
+engine/libgcc_s.so.1
+engine/libm.so.6
+engine/libpthread.so.0
+engine/libstdc++.so.6
 !engine/Rapfi22
-!engine/libs/
+!engine/libtbb.so.2
