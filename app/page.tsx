@@ -5,6 +5,9 @@ import Board from '@/components/Board';
 import { createInitialState, makeMove, undoMove, checkDraw } from '@/lib/game';
 import type { GameState, Player } from '@/lib/game';
 import type { Difficulty } from '@/lib/ai/engine';
+import { audioManager } from '@/lib/audio';
+
+const STORAGE_KEY = 'gomoku-game-state';
 
 export default function Home() {
   const [gameState, setGameState] = useState<GameState>(createInitialState);
@@ -12,11 +15,15 @@ export default function Home() {
   const [gameMode, setGameMode] = useState<'pve' | 'pvp'>('pve');
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [showVictoryEffect, setShowVictoryEffect] = useState(false);
   
   // 使用 ref 跟踪上一步玩家，防止 AI 重复调用
   const lastPlayerRef = useRef<Player>('black');
   // 内置 AI Worker（作为 Rapfi 失败时的备用）
   const workerRef = useRef<Worker | null>(null);
+  // 跟踪是否已播放胜利音效
+  const victorySoundPlayedRef = useRef(false);
   
   // 初始化备用 AI Worker
   useEffect(() => {
@@ -30,6 +37,117 @@ export default function Home() {
     };
     return () => workerRef.current?.terminate();
   }, []);
+
+  // 加载存档
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.gameState && parsed.difficulty && parsed.gameMode) {
+          setGameState(parsed.gameState);
+          setDifficulty(parsed.difficulty);
+          setGameMode(parsed.gameMode);
+          lastPlayerRef.current = parsed.gameState.currentPlayer;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load game state:', error);
+    }
+  }, []);
+
+  // 自动保存游戏状态
+  useEffect(() => {
+    try {
+      const toSave = {
+        gameState,
+        difficulty,
+        gameMode,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch (error) {
+      console.error('Failed to save game state:', error);
+    }
+  }, [gameState, difficulty, gameMode]);
+
+  // 音效开关持久化
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('gomoku-sound-enabled');
+      if (saved !== null) {
+        setSoundEnabled(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.error('Failed to load sound setting:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gomoku-sound-enabled', JSON.stringify(soundEnabled));
+      audioManager.setEnabled(soundEnabled);
+    } catch (error) {
+      console.error('Failed to save sound setting:', error);
+    }
+  }, [soundEnabled]);
+
+  // 落子音效播放（使用 ref 跟踪上一步，避免重复播放）
+  const lastMoveRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    if (gameState.lastMove) {
+      const key = `${gameState.lastMove[0]},${gameState.lastMove[1]}`;
+      if (lastMoveRef.current !== key) {
+        // 新落子，播放音效
+        if (soundEnabled) {
+          audioManager.playPlace();
+        }
+        lastMoveRef.current = key;
+      }
+    }
+  }, [gameState.lastMove, soundEnabled]);
+
+  // 新游戏时重置 lastMove ref
+  useEffect(() => {
+    if (gameState.history.length === 0) {
+      lastMoveRef.current = null;
+    }
+  }, [gameState.history.length]);
+
+  // 胜利/平局检测与特效
+  useEffect(() => {
+    const isGameOver = gameState.winner !== null;
+    const isDraw = checkDraw(gameState.board) && !gameState.winner;
+
+    if (isGameOver && gameState.winner && !victorySoundPlayedRef.current) {
+      // 播放胜利音效
+      if (soundEnabled) {
+        audioManager.playWin();
+      }
+      victorySoundPlayedRef.current = true;
+      
+      // 显示胜利特效
+      setShowVictoryEffect(true);
+      
+      // 3 秒后隐藏特效
+      setTimeout(() => {
+        setShowVictoryEffect(false);
+      }, 3000);
+    } else if (isDraw && !victorySoundPlayedRef.current) {
+      // 播放平局音效
+      if (soundEnabled) {
+        audioManager.playDraw();
+      }
+      victorySoundPlayedRef.current = true;
+    }
+
+    // 新游戏时重置标记
+    if (!isGameOver && !isDraw) {
+      victorySoundPlayedRef.current = false;
+      setShowVictoryEffect(false);
+    }
+  }, [gameState.winner, gameState.board, soundEnabled]);
 
   // 检查游戏是否结束
   const isGameOver = gameState.winner !== null;
@@ -200,6 +318,25 @@ export default function Home() {
             {/* 控制按钮 */}
             <div className="flex items-center gap-2">
               <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`px-3 py-2 rounded-lg transition-colors ${
+                  soundEnabled 
+                    ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                }`}
+                title={soundEnabled ? '音效已开启' : '音效已关闭'}
+              >
+                {soundEnabled ? (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 12.293a1 1 0 011.414 0L15 13.586l1.293-1.293a1 1 0 111.414 1.414L16.414 15l1.293 1.293a1 1 0 01-1.414 1.414L15 16.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 15l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+              <button
                 onClick={handleUndo}
                 disabled={isGameOver || gameState.history.length === 0}
                 className="px-4 py-2 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -304,6 +441,30 @@ export default function Home() {
               >
                 关闭
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* 胜利特效 */}
+        {showVictoryEffect && gameState.winner && gameState.winner !== 'draw' && (
+          <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-50">
+            <div className="text-center animate-bounce">
+              <div className="text-6xl mb-4">🎉</div>
+              <div className="text-4xl font-bold text-amber-600 bg-white/90 px-8 py-4 rounded-2xl shadow-2xl">
+                {gameState.winner === 'black' ? '黑方' : '白方'}获胜！
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 平局特效 */}
+        {showVictoryEffect && gameState.winner === 'draw' && (
+          <div className="fixed inset-0 pointer-events-none flex items-center justify-center z-50">
+            <div className="text-center animate-pulse">
+              <div className="text-6xl mb-4">🤝</div>
+              <div className="text-4xl font-bold text-gray-600 bg-white/90 px-8 py-4 rounded-2xl shadow-2xl">
+                平局！
+              </div>
             </div>
           </div>
         )}

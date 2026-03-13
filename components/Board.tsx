@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import type { BoardState, Move } from '@/lib/game';
 import { BOARD_SIZE } from '@/lib/game';
 
@@ -12,6 +12,15 @@ interface BoardProps {
   disabled?: boolean;
 }
 
+// 动画棋子接口
+interface AnimatedStone {
+  x: number;
+  y: number;
+  color: string;
+  scale: number;
+  id: number;
+}
+
 export default function Board({ 
   board, 
   lastMove, 
@@ -21,11 +30,96 @@ export default function Board({
 }: BoardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // 动画棋子状态
+  const [animatedStones, setAnimatedStones] = useState<AnimatedStone[]>([]);
+  const animationIdRef = useRef<number>(0);
 
   // 棋盘配置
   const CELL_SIZE = 40;
   const PADDING = 30;
   const BOARD_PIXELS = CELL_SIZE * (BOARD_SIZE - 1) + PADDING * 2;
+
+  // 检测新落子并触发动画（使用 lastMoveRef 跟踪已动画的棋子）
+  const lastMoveRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    if (!lastMove) return;
+    
+    const [lx, ly] = lastMove;
+    const key = `${lx},${ly}`;
+    const stone = board[ly][lx];
+    if (!stone) return;
+
+    // 检查是否已为此落子播放过动画
+    if (lastMoveRef.current !== key) {
+      console.log('🎮 触发动画:', { x: lx, y: ly, color: stone });
+      // 添加新动画棋子
+      const newStone: AnimatedStone = {
+        x: lx,
+        y: ly,
+        color: stone,
+        scale: 0,
+        id: Date.now(),
+      };
+      setAnimatedStones(prev => {
+        const updated = [...prev, newStone];
+        console.log('📋 animatedStones:', updated.map(s => ({ x: s.x, y: s.y, scale: s.scale })));
+        return updated;
+      });
+      lastMoveRef.current = key;
+    }
+  }, [lastMove, board]);
+
+  // 新游戏时重置动画跟踪
+  useEffect(() => {
+    if (!lastMove) {
+      lastMoveRef.current = null;
+      setAnimatedStones([]);
+    }
+  }, [lastMove]);
+
+  // 调试：监控 animatedStones 变化
+  useEffect(() => {
+    if (animatedStones.length > 0) {
+      console.log('🔄 动画中:', animatedStones.map(s => `${s.x},${s.y}: ${s.scale.toFixed(2)}`));
+    }
+  }, [animatedStones]);
+
+  // 动画循环 - 直接操作并触发绘制
+  useEffect(() => {
+    let frameId: number;
+    
+    const animate = () => {
+      setAnimatedStones(prev => {
+        if (prev.length === 0) return prev;
+        
+        const updated = prev
+          .map(stone => ({
+            ...stone,
+            scale: Math.min(stone.scale + 0.03, 1.05), // 慢速缩放 + 轻微过冲
+          }))
+          .map(stone => {
+            // 过冲后弹回 1.0
+            if (stone.scale > 1) {
+              return { ...stone, scale: Math.max(1, stone.scale - (stone.scale - 1) * 0.3) };
+            }
+            return stone;
+          })
+          .filter(stone => {
+            const isStable = Math.abs(stone.scale - 1) < 0.02;
+            return !isStable; // 保留不稳定的（还在动画的）
+          });
+        
+        return updated;
+      });
+      
+      frameId = requestAnimationFrame(animate);
+    };
+    
+    frameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
 
   // 绘制棋盘
   const drawBoard = useCallback(() => {
@@ -45,6 +139,11 @@ export default function Board({
     gradient.addColorStop(1, '#DEB887');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, BOARD_PIXELS, BOARD_PIXELS);
+    
+    // 调试：显示当前动画棋子数量
+    if (animatedStones.length > 0) {
+      console.log('🎨 绘制棋盘，动画棋子数:', animatedStones.length);
+    }
 
     // 绘制网格线
     ctx.strokeStyle = '#5C4033';
@@ -73,12 +172,20 @@ export default function Board({
       ctx.fill();
     }
 
-    // 绘制棋子
+    // 绘制棋子（静态）
     for (let y = 0; y < BOARD_SIZE; y++) {
       for (let x = 0; x < BOARD_SIZE; x++) {
         const stone = board[y][x];
         if (stone) {
-          drawStone(ctx, x, y, stone);
+          // 检查是否有正在动画的棋子
+          const animStone = animatedStones.find(s => s.x === x && s.y === y);
+          if (animStone) {
+            // 绘制动画中的棋子
+            drawStoneWithScale(ctx, x, y, stone, animStone.scale);
+          } else {
+            // 绘制普通棋子
+            drawStone(ctx, x, y, stone);
+          }
         }
       }
     }
@@ -105,13 +212,20 @@ export default function Board({
       ctx.lineTo(PADDING + endX * CELL_SIZE, PADDING + endY * CELL_SIZE);
       ctx.stroke();
     }
-  }, [board, lastMove, winningLine]);
+  }, [board, lastMove, winningLine, animatedStones]);
 
-  // 绘制单个棋子
+  // 绘制单个棋子（静态）
   const drawStone = (ctx: CanvasRenderingContext2D, x: number, y: number, color: string) => {
+    drawStoneWithScale(ctx, x, y, color, 1);
+  };
+
+  // 绘制单个棋子（带缩放）
+  const drawStoneWithScale = (ctx: CanvasRenderingContext2D, x: number, y: number, color: string, scale: number) => {
     const cx = PADDING + x * CELL_SIZE;
     const cy = PADDING + y * CELL_SIZE;
-    const radius = CELL_SIZE * 0.42;
+    const radius = CELL_SIZE * 0.42 * scale;
+
+    if (radius <= 0) return;
 
     // 创建渐变效果
     const gradient = ctx.createRadialGradient(
@@ -133,11 +247,13 @@ export default function Board({
       gradient.addColorStop(1, '#CCCCCC');
     }
 
-    // 绘制棋子阴影
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 4;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
+    // 绘制棋子阴影（仅当完全显示时）
+    if (scale >= 0.9) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 2;
+    }
 
     // 绘制棋子
     ctx.beginPath();
