@@ -59,17 +59,18 @@ class AudioManager {
     this.ensureContext();
 
     const now = this.audioContext.currentTime;
+    const ctx = this.audioContext; // 避免 TypeScript 报错
     
     // 播放一组 ascending 音符（C-E-G-C）
     const notes = [523.25, 659.25, 783.99, 1046.50];
     const duration = 0.15;
 
     notes.forEach((freq, index) => {
-      const oscillator = this.audioContext.createOscillator();
-      const gainNode = this.audioContext.createGain();
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
 
       oscillator.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
+      gainNode.connect(ctx.destination);
 
       oscillator.type = 'sine';
       oscillator.frequency.value = freq;
@@ -89,17 +90,18 @@ class AudioManager {
     this.ensureContext();
 
     const now = this.audioContext.currentTime;
+    const ctx = this.audioContext; // 避免 TypeScript 报错
     
     // 播放一组 descending 音符
     const notes = [392.00, 349.23, 329.63, 293.66];
     const duration = 0.2;
 
     notes.forEach((freq, index) => {
-      const oscillator = this.audioContext.createOscillator();
-      const gainNode = this.audioContext.createGain();
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
 
       oscillator.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
+      gainNode.connect(ctx.destination);
 
       oscillator.type = 'sine';
       oscillator.frequency.value = freq;
