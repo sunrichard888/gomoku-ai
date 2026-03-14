@@ -462,8 +462,12 @@ export default function Home() {
         {/* 设置模态框 */}
         {showSettings && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full">
-              <h2 className="text-2xl font-bold text-amber-900 mb-4">游戏设置</h2>
+            <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] flex flex-col">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-2xl font-bold text-amber-900">游戏设置</h2>
+              </div>
+              
+              <div className="p-6 overflow-y-auto flex-1">
               
               {/* 游戏模式 */}
               <div className="mb-6">
@@ -565,13 +569,17 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* 关闭按钮 */}
-              <button
-                onClick={() => setShowSettings(false)}
-                className="w-full px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
-              >
-                关闭
-              </button>
+              </div>
+              
+              {/* 关闭按钮 - 固定在底部 */}
+              <div className="p-6 border-t border-gray-200 bg-gray-50 rounded-b-lg sticky bottom-0">
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="w-full px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors font-medium"
+                >
+                  关闭
+                </button>
+              </div>
             </div>
           </div>
         )}
