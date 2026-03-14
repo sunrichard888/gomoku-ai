@@ -2,8 +2,19 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Board from '@/components/Board';
-import { createInitialState, makeMove, undoMove, checkDraw } from '@/lib/game';
-import type { GameState, Player } from '@/lib/game';
+import StatsPanel from '@/components/StatsPanel';
+import { 
+  createInitialState, 
+  makeMove, 
+  undoMove, 
+  checkDraw,
+  loadStats,
+  saveStats,
+  recordGameResult,
+  type GameState,
+  type Player,
+  type GameStats,
+} from '@/lib/game';
 import type { Difficulty } from '@/lib/ai/engine';
 import { audioManager } from '@/lib/audio';
 
@@ -15,6 +26,8 @@ export default function Home() {
   const [gameMode, setGameMode] = useState<'pve' | 'pvp'>('pve');
   const [isAIThinking, setIsAIThinking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [stats, setStats] = useState<GameStats>(() => loadStats());
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showVictoryEffect, setShowVictoryEffect] = useState(false);
   
@@ -36,6 +49,12 @@ export default function Home() {
       setIsAIThinking(false);
     };
     return () => workerRef.current?.terminate();
+  }, []);
+
+  // 加载战绩统计
+  useEffect(() => {
+    const loadedStats = loadStats();
+    setStats(loadedStats);
   }, []);
 
   // 加载存档
@@ -115,7 +134,7 @@ export default function Home() {
     }
   }, [gameState.history.length]);
 
-  // 胜利/平局检测与特效
+  // 胜利/平局检测与特效 + 战绩记录
   useEffect(() => {
     const isGameOver = gameState.winner !== null;
     const isDraw = checkDraw(gameState.board) && !gameState.winner;
@@ -134,12 +153,27 @@ export default function Home() {
       setTimeout(() => {
         setShowVictoryEffect(false);
       }, 3000);
+
+      // 记录战绩（仅在人机模式下）
+      if (gameMode === 'pve') {
+        const result = gameState.winner === 'black' ? 'win' : 'loss';
+        const newStats = recordGameResult(stats, result, difficulty);
+        setStats(newStats);
+        saveStats(newStats);
+      }
     } else if (isDraw && !victorySoundPlayedRef.current) {
       // 播放平局音效
       if (soundEnabled) {
         audioManager.playDraw();
       }
       victorySoundPlayedRef.current = true;
+
+      // 记录平局战绩（仅在人机模式下）
+      if (gameMode === 'pve') {
+        const newStats = recordGameResult(stats, 'draw', difficulty);
+        setStats(newStats);
+        saveStats(newStats);
+      }
     }
 
     // 新游戏时重置标记
@@ -147,7 +181,7 @@ export default function Home() {
       victorySoundPlayedRef.current = false;
       setShowVictoryEffect(false);
     }
-  }, [gameState.winner, gameState.board, soundEnabled]);
+  }, [gameState.winner, gameState.board, soundEnabled, gameMode, difficulty, stats]);
 
   // 检查游戏是否结束
   const isGameOver = gameState.winner !== null;
@@ -264,6 +298,11 @@ export default function Home() {
     lastPlayerRef.current = 'black';
   }, []);
 
+  // 查看战绩
+  const handleViewStats = useCallback(() => {
+    setShowStats(true);
+  }, []);
+
   // 切换游戏模式
   const handleModeChange = useCallback((mode: 'pve' | 'pvp') => {
     setGameMode(mode);
@@ -337,6 +376,15 @@ export default function Home() {
                 )}
               </button>
               <button
+                onClick={handleViewStats}
+                className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+                title="查看战绩"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+                </svg>
+              </button>
+              <button
                 onClick={handleUndo}
                 disabled={isGameOver || gameState.history.length === 0}
                 className="px-4 py-2 bg-amber-100 text-amber-900 rounded-lg hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -367,6 +415,14 @@ export default function Home() {
           onMove={handleMove}
           disabled={isGameOver || isDraw || (gameMode === 'pve' && gameState.currentPlayer === 'white')}
         />
+
+        {/* 战绩统计面板 */}
+        {showStats && (
+          <StatsPanel
+            stats={stats}
+            onClose={() => setShowStats(false)}
+          />
+        )}
 
         {/* 设置模态框 */}
         {showSettings && (
