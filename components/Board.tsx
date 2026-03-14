@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import type { BoardState, Move } from '@/lib/game';
 import { BOARD_SIZE } from '@/lib/game';
+import type { BoardSkin, StoneSkin } from '@/lib/skins';
 
 interface BoardProps {
   board: BoardState;
@@ -10,6 +11,8 @@ interface BoardProps {
   winningLine: [number, number][] | null;
   onMove: (x: number, y: number) => void;
   disabled?: boolean;
+  boardSkin?: BoardSkin;
+  stoneSkin?: StoneSkin;
 }
 
 // 动画棋子接口
@@ -26,7 +29,9 @@ export default function Board({
   lastMove, 
   winningLine, 
   onMove,
-  disabled = false 
+  disabled = false,
+  boardSkin,
+  stoneSkin,
 }: BoardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -132,12 +137,18 @@ export default function Board({
     // 清空画布
     ctx.clearRect(0, 0, BOARD_PIXELS, BOARD_PIXELS);
 
-    // 绘制木纹背景
-    const gradient = ctx.createLinearGradient(0, 0, BOARD_PIXELS, BOARD_PIXELS);
-    gradient.addColorStop(0, '#DEB887');
-    gradient.addColorStop(0.5, '#D2A679');
-    gradient.addColorStop(1, '#DEB887');
-    ctx.fillStyle = gradient;
+    // 绘制背景（使用皮肤配置）
+    const bgGradient = ctx.createLinearGradient(0, 0, BOARD_PIXELS, BOARD_PIXELS);
+    const bgColors = boardSkin?.backgroundColor || ['#DEB887', '#D2A679', '#DEB887'];
+    if (Array.isArray(bgColors)) {
+      bgGradient.addColorStop(0, bgColors[0]);
+      bgGradient.addColorStop(0.5, bgColors[1]);
+      bgGradient.addColorStop(1, bgColors[2]);
+    } else {
+      bgGradient.addColorStop(0, bgColors);
+      bgGradient.addColorStop(1, bgColors);
+    }
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, BOARD_PIXELS, BOARD_PIXELS);
     
     // 调试：显示当前动画棋子数量
@@ -145,8 +156,8 @@ export default function Board({
       console.log('🎨 绘制棋盘，动画棋子数:', animatedStones.length);
     }
 
-    // 绘制网格线
-    ctx.strokeStyle = '#5C4033';
+    // 绘制网格线（使用皮肤配置）
+    ctx.strokeStyle = boardSkin?.gridColor || '#5C4033';
     ctx.lineWidth = 1;
 
     for (let i = 0; i < BOARD_SIZE; i++) {
@@ -163,9 +174,9 @@ export default function Board({
       ctx.stroke();
     }
 
-    // 绘制天元和星位
+    // 绘制天元和星位（使用皮肤配置）
     const starPoints = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
-    ctx.fillStyle = '#5C4033';
+    ctx.fillStyle = boardSkin?.starColor || '#5C4033';
     for (const [x, y] of starPoints) {
       ctx.beginPath();
       ctx.arc(PADDING + x * CELL_SIZE, PADDING + y * CELL_SIZE, 4, 0, Math.PI * 2);
@@ -227,6 +238,17 @@ export default function Board({
 
     if (radius <= 0) return;
 
+    // 获取棋子皮肤配置
+    const stoneConfig = color === 'black' 
+      ? stoneSkin?.blackStones 
+      : stoneSkin?.whiteStones;
+    
+    const gradientColors = stoneConfig?.gradient || (
+      color === 'black' 
+        ? ['#666666', '#333333', '#000000']
+        : ['#FFFFFF', '#F0F0F0', '#CCCCCC']
+    );
+
     // 创建渐变效果
     const gradient = ctx.createRadialGradient(
       cx - radius * 0.3,
@@ -236,21 +258,16 @@ export default function Board({
       cy,
       radius
     );
-
-    if (color === 'black') {
-      gradient.addColorStop(0, '#666666');
-      gradient.addColorStop(0.3, '#333333');
-      gradient.addColorStop(1, '#000000');
-    } else {
-      gradient.addColorStop(0, '#FFFFFF');
-      gradient.addColorStop(0.3, '#F0F0F0');
-      gradient.addColorStop(1, '#CCCCCC');
-    }
+    
+    gradient.addColorStop(0, gradientColors[0]);
+    gradient.addColorStop(0.3, gradientColors[1]);
+    gradient.addColorStop(1, gradientColors[2]);
 
     // 绘制棋子阴影（仅当完全显示时）
+    const gloss = stoneConfig?.gloss ?? 0.5;
     if (scale >= 0.9) {
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = 4;
+      ctx.shadowColor = `rgba(0, 0, 0, ${0.2 + gloss * 0.2})`;
+      ctx.shadowBlur = 4 + gloss * 4;
       ctx.shadowOffsetX = 2;
       ctx.shadowOffsetY = 2;
     }
@@ -260,6 +277,31 @@ export default function Board({
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fillStyle = gradient;
     ctx.fill();
+
+    // 添加高光效果（玻璃/大理石质感）
+    if (gloss > 0.6 && scale >= 0.9) {
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      
+      // 高光
+      const highlightGradient = ctx.createRadialGradient(
+        cx - radius * 0.3,
+        cy - radius * 0.3,
+        0,
+        cx - radius * 0.3,
+        cy - radius * 0.3,
+        radius * 0.4
+      );
+      highlightGradient.addColorStop(0, `rgba(255, 255, 255, ${gloss * 0.4})`);
+      highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = highlightGradient;
+      ctx.fill();
+    }
 
     // 重置阴影
     ctx.shadowColor = 'transparent';

@@ -17,6 +17,14 @@ import {
 } from '@/lib/game';
 import type { Difficulty } from '@/lib/ai/engine';
 import { audioManager } from '@/lib/audio';
+import { 
+  loadSkins, 
+  saveSkins, 
+  BOARD_SKINS, 
+  STONE_SKINS,
+  type BoardSkin,
+  type StoneSkin,
+} from '@/lib/skins';
 
 const STORAGE_KEY = 'gomoku-game-state';
 
@@ -28,6 +36,8 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [stats, setStats] = useState<GameStats>(() => loadStats());
+  const [boardSkin, setBoardSkin] = useState<BoardSkin>(BOARD_SKINS[0]);
+  const [stoneSkin, setStoneSkin] = useState<StoneSkin>(STONE_SKINS[0]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showVictoryEffect, setShowVictoryEffect] = useState(false);
   
@@ -55,6 +65,15 @@ export default function Home() {
   useEffect(() => {
     const loadedStats = loadStats();
     setStats(loadedStats);
+  }, []);
+
+  // 加载皮肤偏好
+  useEffect(() => {
+    const loadedSkins = loadSkins();
+    const board = BOARD_SKINS.find(s => s.id === loadedSkins.board) || BOARD_SKINS[0];
+    const stone = STONE_SKINS.find(s => s.id === loadedSkins.stone) || STONE_SKINS[0];
+    setBoardSkin(board);
+    setStoneSkin(stone);
   }, []);
 
   // 加载存档
@@ -303,6 +322,20 @@ export default function Home() {
     setShowStats(true);
   }, []);
 
+  // 切换棋盘皮肤
+  const handleBoardSkinChange = useCallback((skinId: string) => {
+    const skin = BOARD_SKINS.find(s => s.id === skinId) || BOARD_SKINS[0];
+    setBoardSkin(skin);
+    saveSkins({ board: skinId, stone: stoneSkin.id });
+  }, [stoneSkin]);
+
+  // 切换棋子皮肤
+  const handleStoneSkinChange = useCallback((skinId: string) => {
+    const skin = STONE_SKINS.find(s => s.id === skinId) || STONE_SKINS[0];
+    setStoneSkin(skin);
+    saveSkins({ board: boardSkin.id, stone: skinId });
+  }, [boardSkin]);
+
   // 切换游戏模式
   const handleModeChange = useCallback((mode: 'pve' | 'pvp') => {
     setGameMode(mode);
@@ -414,6 +447,8 @@ export default function Home() {
           winningLine={gameState.winningLine}
           onMove={handleMove}
           disabled={isGameOver || isDraw || (gameMode === 'pve' && gameState.currentPlayer === 'white')}
+          boardSkin={boardSkin}
+          stoneSkin={stoneSkin}
         />
 
         {/* 战绩统计面板 */}
@@ -489,6 +524,46 @@ export default function Home() {
                   </p>
                 </div>
               )}
+
+              {/* 棋盘皮肤 */}
+              <div className="mb-6">
+                <h3 className="text-lg font-medium text-amber-900 mb-3">🎨 棋盘皮肤</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {BOARD_SKINS.map((skin) => (
+                    <button
+                      key={skin.id}
+                      onClick={() => handleBoardSkinChange(skin.id)}
+                      className={`flex-1 px-4 py-3 rounded-lg transition-colors ${
+                        boardSkin.id === skin.id
+                          ? 'bg-amber-500 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      <div className="font-medium">{skin.emoji} {skin.name}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 棋子皮肤 */}
+              <div className="mb-6">
+                <h3 className="text-lg font-medium text-amber-900 mb-3">⚫ 棋子皮肤</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {STONE_SKINS.map((skin) => (
+                    <button
+                      key={skin.id}
+                      onClick={() => handleStoneSkinChange(skin.id)}
+                      className={`flex-1 px-4 py-3 rounded-lg transition-colors ${
+                        stoneSkin.id === skin.id
+                          ? 'bg-amber-500 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      <div className="font-medium">{skin.emoji} {skin.name}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* 关闭按钮 */}
               <button
