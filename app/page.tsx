@@ -40,6 +40,12 @@ export default function Home() {
   const [stoneSkin, setStoneSkin] = useState<StoneSkin>(STONE_SKINS[0]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showVictoryEffect, setShowVictoryEffect] = useState(false);
+  const [aiThinkingInfo, setAiThinkingInfo] = useState<{
+    depth: number;
+    score: number;
+    movesEvaluated: number;
+    timeMs: number;
+  } | null>(null);
   
   // 使用 ref 跟踪上一步玩家，防止 AI 重复调用
   const lastPlayerRef = useRef<Player>('black');
@@ -248,6 +254,12 @@ export default function Home() {
         .then(res => res.json())
         .then(data => {
           console.log('API response data:', data);
+          
+          // 保存 AI 思考信息
+          if (data.thinking) {
+            setAiThinkingInfo(data.thinking);
+          }
+          
           if (data.move) {
             // 检查落子位置是否合法
             const isValid = gameState.board[data.move.y][data.move.x] === null;
@@ -386,6 +398,30 @@ export default function Home() {
                 }
               </span>
             </div>
+
+            {/* AI 思考信息 */}
+            {aiThinkingInfo && !isGameOver && !isDraw && gameMode === 'pve' && (
+              <div className="flex items-center gap-3 text-sm">
+                <div className="flex items-center gap-1 text-purple-600">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
+                  </svg>
+                  <span className="font-medium">深度：{aiThinkingInfo.depth}</span>
+                </div>
+                <div className="flex items-center gap-1 text-blue-600">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="font-medium">评估：{aiThinkingInfo.score > 0 ? '+' : ''}{aiThinkingInfo.score}</span>
+                </div>
+                <div className="flex items-center gap-1 text-gray-600">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                  <span className="font-medium">{aiThinkingInfo.timeMs}ms</span>
+                </div>
+              </div>
+            )}
 
             {/* 控制按钮 */}
             <div className="flex items-center gap-2">
